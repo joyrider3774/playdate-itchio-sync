@@ -17,6 +17,16 @@ const DATA_PATH = `${os.homedir()}/.pdsync`;
 const LOG_PATH = `${DATA_PATH}/log.json`;
 const CRED_PATH = `${DATA_PATH}/credentials.json`;
 
+//nameonplaydate:nameonitch
+const renameDict = {
+    "TavernTapper":"Tavern Tapper (Playdate)",
+    "ART7 1-bit Gallery":"ART7 + ART-O-Ween",
+    "Cyberhamster Pd":"Cyber Hamster Tilt",
+    "Dr. Panic v2.6":"Dr. Panic",
+    "Pulp-gram":"Play gram"
+}
+
+
 async function login() {
   await checkCredentialsExist();
 
@@ -147,14 +157,10 @@ export async function sideload(message = console.log) {
 
   const sideloaded = new Set();
   sideloads.forEach(({ title }) => {
-    if(title === 'ART7 1-bit Gallery')
-    {
-       title = 'ART7 + ART-O-Ween';
-    }
-    if (title === 'Cyberhamster Pd')
-    {
-       title = 'Cyber Hamster Tilt';
-    }
+    if (title in renameDict)
+	{
+		title = renameDict[title];
+	}
     CollectionGames.forEach((o) => {
       if (o.game.title.toLowerCase().includes(title.toLowerCase())) {
         sideloaded.add(o);
