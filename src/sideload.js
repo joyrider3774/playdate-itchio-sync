@@ -1,7 +1,8 @@
 import { login as pd_login, getSideloads, uploadGame } from "./playdate.js";
 import {
   login as itch_login,
-  getGames,
+  getCollectionGames,
+  getOwnedGames,
   downloadGame,
   getGameDownloads,
 } from "./itchio.js";
@@ -20,6 +21,9 @@ async function login() {
   await checkCredentialsExist();
 
   const { pd, itch } = await fs.readJson(CRED_PATH);
+  if(!itch.collectionid)
+    await enterCredentialsFlow();
+
   try {
       await pd_login(pd.username, pd.password);
     const {
@@ -39,14 +43,16 @@ async function checkCredentialsExist() {
     !process.env.PD_USERNAME &&
     !process.env.PD_PASSWORD &&
     !process.env.ITCH_USERNAME &&
-    !process.env.ITCH_PASSWORD
+    !process.env.ITCH_PASSWORD &&
+    !process.env.ITCH_COLLECTIONID
   ) {
     await enterCredentialsFlow();
   } else if (
     process.env.PD_USERNAME &&
     process.env.PD_PASSWORD &&
     process.env.ITCH_USERNAME &&
-    process.env.ITCH_PASSWORD
+    process.env.ITCH_PASSWORD &&
+    process.env.ITCH_COLLECTIONID
   ) {
     await fs.writeJson(CRED_PATH, {
       pd: {
@@ -56,6 +62,7 @@ async function checkCredentialsExist() {
       itch: {
         username: process.env.ITCH_USERNAME,
         password: process.env.ITCH_PASSWORD,
+        collectionid: process.env.ITCH_COLLECTIONID,
       },
     });
   }
@@ -86,6 +93,11 @@ async function enterCredentialsFlow() {
       message: "itch.io password:",
       mask: "*",
     },
+    {
+      type: "input",
+      name: "itch_collectionid",
+      message: "itch.io Collection ID (grab from collection url):",
+    },
   ]);
 
   await fs.writeJson(CRED_PATH, {
@@ -96,48 +108,9 @@ async function enterCredentialsFlow() {
     itch: {
       username: results.itch_email,
       password: results.itch_password,
+      collectionid: results.itch_collectionid,
     },
   });
-}
-
-async function getPotentialPlaydateGameNames(page) {
-  const response = await fetch(
-    `https://itch.io/games/tag-playdate?page=${page}&format=json`
-  );
-  const { content, num_items } = await response.json();
-
-  if (num_items === 0) {
-    return [];
-  }
-
-  const dom = new JSDOM(content);
-  const games = dom.window.document.querySelectorAll(`.game_cell_data`);
-  const processedGames = [];
-  for (let i = 0; i < games.length; i++) {
-    const titleElement = games[i].querySelector(".title");
-    processedGames.push(titleElement.textContent);
-  }
-  return processedGames;
-}
-
-async function getAllPotentialPlaydateGameNames() {
-  const allNames = new Set();
-
-  let loop = true;
-  let page = 1;
-
-  while (loop) {
-    const names = await getPotentialPlaydateGameNames(page);
-    if (names.length == 0) {
-      loop = false;
-    }
-    names.forEach((name) => {
-      allNames.add(name);
-    });
-    page++;
-  }
-
-  return allNames;
 }
 
 export async function sideload(message = console.log) {
@@ -151,24 +124,38 @@ export async function sideload(message = console.log) {
     await fs.writeJson(LOG_PATH, {});
   }
 
+  const { pd, itch } = await fs.readJson(CRED_PATH);
+
   message("[System]", "Signing in");
-  const [token, potentialGameNames] = await Promise.all([
+  const [token] = await Promise.all([
     login(),
-    getAllPotentialPlaydateGameNames(),
   ]);
 
   message("[System]", "Processing libraries");
-  const [sideloads, games] = await Promise.all([
+  const [sideloads, OwnedGames, CollectionGames] = await Promise.all([
     getSideloads(),
-    getGames(token),
+    getOwnedGames(token),
+    getCollectionGames(token, itch.collectionid),
   ]);
-  const filteredGames = new Set(
-    games.filter((o) => potentialGameNames.has(o.game.title))
-  );
+  
+  CollectionGames.forEach((o) => {
+    o['game_id'] = o.game.id;
+    var ownedGame = OwnedGames.find((item) => item.game_id === o.game.id);
+    if(ownedGame)
+      o['id'] = ownedGame.id;
+  });
 
   const sideloaded = new Set();
   sideloads.forEach(({ title }) => {
-    filteredGames.forEach((o) => {
+    if(title === 'ART7 1-bit Gallery')
+    {
+       title = 'ART7 + ART-O-Ween';
+    }
+    if (title === 'Cyberhamster Pd')
+    {
+       title = 'Cyber Hamster Tilt';
+    }
+    CollectionGames.forEach((o) => {
       if (o.game.title.toLowerCase().includes(title.toLowerCase())) {
         sideloaded.add(o);
       } else if (
@@ -189,7 +176,7 @@ export async function sideload(message = console.log) {
   });
 
   const needsSideload = new Set();
-  filteredGames.forEach((o) => {
+  CollectionGames.forEach((o) => { 
     if (!sideloaded.has(o)) {
       needsSideload.add(o);
     }
